@@ -82,6 +82,28 @@ function resolveCwd(cwdRaw: unknown): string {
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error("cwd must stay within the gateway working directory");
   }
+
+  // SECURITY: prevent escapes via symlinks that point outside the base dir.
+  // If the path exists, compare its realpath with the base realpath.
+  if (fs.existsSync(resolved)) {
+    let baseReal: string;
+    let resolvedReal: string;
+    try {
+      baseReal = fs.realpathSync(base);
+      resolvedReal = fs.realpathSync(resolved);
+    } catch {
+      throw new Error("cwd must stay within the gateway working directory");
+    }
+
+    const relReal = path.relative(
+      normalizeForCwdSandbox(baseReal),
+      normalizeForCwdSandbox(resolvedReal),
+    );
+    if (relReal.startsWith("..") || path.isAbsolute(relReal)) {
+      throw new Error("cwd must stay within the gateway working directory");
+    }
+  }
+
   return resolved;
 }
 
