@@ -1,5 +1,5 @@
-import type { RequestClient } from "@buape/carbon";
 import type { APIChannel } from "discord-api-types/v10";
+import { serializePayload, type MessagePayloadObject, type RequestClient } from "@buape/carbon";
 import { ChannelType, Routes } from "discord-api-types/v10";
 import fs from "node:fs/promises";
 import type { RetryConfig } from "../infra/retry.js";
@@ -12,6 +12,7 @@ import { recordChannelActivity } from "../infra/channel-activity.js";
 import { convertMarkdownTables } from "../markdown/tables.js";
 import { resolveDiscordAccount } from "./accounts.js";
 import {
+  buildDiscordMessagePayload,
   buildDiscordSendError,
   buildDiscordTextChunks,
   createDiscordClient,
@@ -19,8 +20,11 @@ import {
   normalizeStickerIds,
   parseAndResolveRecipient,
   resolveChannelId,
+  resolveDiscordSendComponents,
   sendDiscordMedia,
   sendDiscordText,
+  stripUndefinedFields,
+  type DiscordSendComponents,
 } from "./send.shared.js";
 import {
   ensureOggOpus,
@@ -36,7 +40,7 @@ type DiscordSendOpts = {
   rest?: RequestClient;
   replyTo?: string;
   retry?: RetryConfig;
-  embeds?: unknown[];
+  components?: DiscordSendComponents;
   silent?: boolean;
 };
 
@@ -95,7 +99,17 @@ export async function sendMessageDiscord(
       chunkMode,
     });
     const starterContent = chunks[0]?.trim() ? chunks[0] : threadName;
-    const starterEmbeds = opts.embeds?.length ? opts.embeds : undefined;
+    const starterComponents = resolveDiscordSendComponents({
+      components: opts.components,
+      text: starterContent,
+      isFirst: true,
+    });
+    const silentFlags = opts.silent ? 1 << 12 : undefined;
+    const starterPayload: MessagePayloadObject = buildDiscordMessagePayload({
+      text: starterContent,
+      components: starterComponents,
+      flags: silentFlags,
+    });
     let threadRes: { id: string; message?: { id: string; channel_id: string } };
     try {
       threadRes = (await request(
@@ -103,10 +117,7 @@ export async function sendMessageDiscord(
           rest.post(Routes.threads(channelId), {
             body: {
               name: threadName,
-              message: {
-                content: starterContent,
-                ...(starterEmbeds ? { embeds: starterEmbeds } : {}),
-              },
+              message: stripUndefinedFields(serializePayload(starterPayload)),
             },
           }) as Promise<{ id: string; message?: { id: string; channel_id: string } }>,
         "forum-thread",
@@ -199,7 +210,7 @@ export async function sendMessageDiscord(
         opts.replyTo,
         request,
         accountInfo.config.maxLinesPerMessage,
-        opts.embeds,
+        opts.components,
         chunkMode,
         opts.silent,
       );
@@ -211,7 +222,7 @@ export async function sendMessageDiscord(
         opts.replyTo,
         request,
         accountInfo.config.maxLinesPerMessage,
-        opts.embeds,
+        opts.components,
         chunkMode,
         opts.silent,
       );

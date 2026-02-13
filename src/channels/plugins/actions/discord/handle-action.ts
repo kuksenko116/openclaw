@@ -44,7 +44,11 @@ export async function handleDiscordMessageAction(
       readStringParam(params, "path", { trim: false }) ??
       readStringParam(params, "filePath", { trim: false });
     const replyTo = readStringParam(params, "replyTo");
-    const embeds = Array.isArray(params.embeds) ? params.embeds : undefined;
+    const rawComponents = params.components;
+    const components =
+      Array.isArray(rawComponents) || typeof rawComponents === "function"
+        ? rawComponents
+        : undefined;
     const asVoice = params.asVoice === true;
     const silent = params.silent === true;
     return await handleDiscordAction(
@@ -55,7 +59,7 @@ export async function handleDiscordMessageAction(
         content,
         mediaUrl: mediaUrl ?? undefined,
         replyTo: replyTo ?? undefined,
-        embeds,
+        components,
         asVoice,
         silent,
       },
