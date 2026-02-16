@@ -1,0 +1,14 @@
+.{
+    .name = .openclaw_cli,
+    .version = "0.1.0",
+    .fingerprint = 0xc2af04d447772062,
+    .minimum_zig_version = "0.14.0",
+
+    .dependencies = .{},
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
