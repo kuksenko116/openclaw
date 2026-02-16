@@ -10,7 +10,7 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 use crate::agent::types::{
-    AgentEvent, ChatRequest, ContentBlock, Message, Role, StopReason, ToolDefinition,
+    AgentEvent, ChatRequest, ContentBlock, ImageSource, Message, Role, StopReason, ToolDefinition,
 };
 use crate::agent::LlmProvider;
 use super::streaming::parse_sse_stream;
@@ -41,15 +41,58 @@ impl AnthropicProvider {
 
 /// Build the request body for the Anthropic Messages API.
 fn build_request_body(request: &ChatRequest) -> Value {
-    let messages = convert_messages(&request.messages);
-    let tools = convert_tools(&request.tools);
+    let mut messages = convert_messages(&request.messages);
+    let mut tools = convert_tools(&request.tools);
+
+    let thinking_enabled = matches!(request.thinking_budget, Some(budget) if budget > 0);
+
+    // Calculate max_tokens: when thinking is enabled, the budget counts toward max_tokens
+    let max_tokens = if let Some(budget) = request.thinking_budget {
+        if budget > 0 {
+            budget + request.max_tokens
+        } else {
+            request.max_tokens
+        }
+    } else {
+        request.max_tokens
+    };
+
+    // Add cache_control to the last tool definition (prompt caching breakpoint)
+    if !tools.is_empty() {
+        let last_idx = tools.len() - 1;
+        tools[last_idx]["cache_control"] = json!({ "type": "ephemeral" });
+    }
+
+    // Add cache_control to the last user message (prompt caching breakpoint)
+    if let Some(last_user_idx) = find_last_user_message_index(&messages) {
+        if let Some(msg) = messages.get_mut(last_user_idx) {
+            if let Some(content) = msg.get_mut("content") {
+                if let Some(arr) = content.as_array_mut() {
+                    if let Some(last_block) = arr.last_mut() {
+                        last_block["cache_control"] = json!({ "type": "ephemeral" });
+                    }
+                }
+            }
+        }
+    }
 
     let mut body = json!({
         "model": request.model,
         "messages": messages,
-        "max_tokens": request.max_tokens,
+        "max_tokens": max_tokens,
         "stream": true,
     });
+
+    // Extended thinking support
+    if thinking_enabled {
+        body["thinking"] = json!({
+            "type": "enabled",
+            "budget_tokens": request.thinking_budget.unwrap()
+        });
+        // Anthropic doesn't allow temperature with thinking
+    } else if let Some(temp) = request.temperature {
+        body["temperature"] = json!(temp);
+    }
 
     if !request.system_prompt.is_empty() {
         body["system"] = json!([{
@@ -63,11 +106,17 @@ fn build_request_body(request: &ChatRequest) -> Value {
         body["tools"] = json!(tools);
     }
 
-    if let Some(temp) = request.temperature {
-        body["temperature"] = json!(temp);
-    }
-
     body
+}
+
+/// Find the index of the last user message in the converted messages array.
+fn find_last_user_message_index(messages: &[Value]) -> Option<usize> {
+    messages
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, msg)| msg["role"].as_str() == Some("user"))
+        .map(|(idx, _)| idx)
 }
 
 /// Convert internal messages to Anthropic format.
@@ -123,6 +172,7 @@ fn convert_user_content(blocks: &[ContentBlock]) -> Vec<Value> {
                 "name": name,
                 "input": input,
             }),
+            ContentBlock::Image { source } => convert_image_source(source),
         })
         .collect()
 }
@@ -148,8 +198,21 @@ fn convert_assistant_content(blocks: &[ContentBlock]) -> Vec<Value> {
                 "tool_use_id": tool_use_id,
                 "content": content,
             }),
+            ContentBlock::Image { source } => convert_image_source(source),
         })
         .collect()
+}
+
+/// Convert an ImageSource to the Anthropic API JSON format.
+fn convert_image_source(source: &ImageSource) -> Value {
+    json!({
+        "type": "image",
+        "source": {
+            "type": source.source_type,
+            "media_type": source.media_type,
+            "data": source.data,
+        }
+    })
 }
 
 /// Convert tool definitions to Anthropic format.
@@ -199,7 +262,7 @@ impl LlmProvider for AnthropicProvider {
             let response = client
                 .post(&url)
                 .header("x-api-key", &api_key)
-                .header("anthropic-version", "2023-06-01")
+                .header("anthropic-version", "2025-01-24")
                 .header("content-type", "application/json")
                 .json(&body)
                 .send()
@@ -239,6 +302,8 @@ struct AnthropicEventStream {
     current_tool_id: Option<String>,
     current_tool_name: Option<String>,
     current_tool_input_json: String,
+    /// Whether the current content block is a thinking block.
+    in_thinking_block: bool,
     pending: Vec<Result<AgentEvent>>,
     done: bool,
 }
@@ -252,6 +317,7 @@ impl AnthropicEventStream {
             current_tool_id: None,
             current_tool_name: None,
             current_tool_input_json: String::new(),
+            in_thinking_block: false,
             pending: Vec::new(),
             done: false,
         }
@@ -264,10 +330,19 @@ impl AnthropicEventStream {
             "content_block_start" => {
                 if let Ok(data) = serde_json::from_str::<Value>(&sse_event.data) {
                     let block = &data["content_block"];
-                    if block["type"].as_str() == Some("tool_use") {
-                        self.current_tool_id = block["id"].as_str().map(String::from);
-                        self.current_tool_name = block["name"].as_str().map(String::from);
-                        self.current_tool_input_json.clear();
+                    match block["type"].as_str() {
+                        Some("tool_use") => {
+                            self.current_tool_id = block["id"].as_str().map(String::from);
+                            self.current_tool_name = block["name"].as_str().map(String::from);
+                            self.current_tool_input_json.clear();
+                            self.in_thinking_block = false;
+                        }
+                        Some("thinking") => {
+                            self.in_thinking_block = true;
+                        }
+                        _ => {
+                            self.in_thinking_block = false;
+                        }
                     }
                 }
             }
@@ -282,6 +357,12 @@ impl AnthropicEventStream {
                                     .push(Ok(AgentEvent::TextDelta(text.to_string())));
                             }
                         }
+                        Some("thinking_delta") => {
+                            if let Some(text) = delta["thinking"].as_str() {
+                                self.pending
+                                    .push(Ok(AgentEvent::Thinking(text.to_string())));
+                            }
+                        }
                         Some("input_json_delta") => {
                             if let Some(json_chunk) = delta["partial_json"].as_str() {
                                 self.current_tool_input_json.push_str(json_chunk);
@@ -293,7 +374,10 @@ impl AnthropicEventStream {
             }
 
             "content_block_stop" => {
-                if let (Some(id), Some(name)) =
+                if self.in_thinking_block {
+                    // Thinking block ended, clear state
+                    self.in_thinking_block = false;
+                } else if let (Some(id), Some(name)) =
                     (self.current_tool_id.take(), self.current_tool_name.take())
                 {
                     let input: Value =
@@ -307,11 +391,16 @@ impl AnthropicEventStream {
 
             "message_start" => {
                 if let Ok(data) = serde_json::from_str::<Value>(&sse_event.data) {
-                    let input_tokens = data["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
-                    if input_tokens > 0 {
+                    let usage = &data["message"]["usage"];
+                    let input_tokens = usage["input_tokens"].as_u64().unwrap_or(0);
+                    let cache_creation = usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+                    let cache_read = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
+                    if input_tokens > 0 || cache_creation > 0 || cache_read > 0 {
                         self.pending.push(Ok(AgentEvent::UsageUpdate {
                             input_tokens,
                             output_tokens: 0,
+                            cache_creation_input_tokens: cache_creation,
+                            cache_read_input_tokens: cache_read,
                         }));
                     }
                 }
@@ -329,6 +418,8 @@ impl AnthropicEventStream {
                         self.pending.push(Ok(AgentEvent::UsageUpdate {
                             input_tokens: 0,
                             output_tokens,
+                            cache_creation_input_tokens: 0,
+                            cache_read_input_tokens: 0,
                         }));
                     }
                 }
@@ -349,7 +440,7 @@ impl AnthropicEventStream {
                     .push(Err(anyhow::anyhow!("Anthropic stream error: {}", message)));
             }
 
-            _ => {} // Ignore ping, message_start, etc.
+            _ => {} // Ignore ping, etc.
         }
     }
 }
@@ -417,6 +508,7 @@ mod tests {
             model: "claude-sonnet-4-20250514".to_string(),
             max_tokens: 1024,
             temperature: None,
+            thinking_budget: None,
         }
     }
 
@@ -536,5 +628,153 @@ mod tests {
 
         let err = classify_http_error(529, "");
         assert!(err.to_string().contains("overloaded"));
+    }
+
+    #[test]
+    fn test_build_request_body_with_thinking() {
+        let mut req = simple_request();
+        req.thinking_budget = Some(10000);
+        let body = build_request_body(&req);
+
+        // Thinking should be enabled
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 10000);
+        // max_tokens should be thinking_budget + max_tokens
+        assert_eq!(body["max_tokens"], 10000 + 1024);
+        // Temperature must not be present when thinking is enabled
+        assert!(body.get("temperature").is_none());
+    }
+
+    #[test]
+    fn test_build_request_body_thinking_zero_budget() {
+        let mut req = simple_request();
+        req.thinking_budget = Some(0);
+        let body = build_request_body(&req);
+
+        // Thinking should NOT be enabled with zero budget
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["max_tokens"], 1024);
+    }
+
+    #[test]
+    fn test_build_request_body_thinking_strips_temperature() {
+        let mut req = simple_request();
+        req.thinking_budget = Some(5000);
+        req.temperature = Some(0.7);
+        let body = build_request_body(&req);
+
+        // Temperature must be omitted when thinking is enabled
+        assert!(body.get("temperature").is_none());
+        assert_eq!(body["thinking"]["type"], "enabled");
+    }
+
+    #[test]
+    fn test_build_request_body_cache_control_on_last_tool() {
+        let mut req = simple_request();
+        req.tools = vec![
+            ToolDefinition {
+                name: "bash".to_string(),
+                description: "Run a command".to_string(),
+                input_schema: json!({"type": "object"}),
+            },
+            ToolDefinition {
+                name: "read".to_string(),
+                description: "Read a file".to_string(),
+                input_schema: json!({"type": "object"}),
+            },
+        ];
+        let body = build_request_body(&req);
+
+        // First tool should NOT have cache_control
+        assert!(body["tools"][0].get("cache_control").is_none());
+        // Last tool should have cache_control
+        assert_eq!(body["tools"][1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn test_build_request_body_cache_control_on_last_user_message() {
+        let mut req = simple_request();
+        req.messages = vec![
+            Message::user("first message"),
+            Message::assistant(vec![ContentBlock::Text { text: "response".to_string() }]),
+            Message::user("second message"),
+        ];
+        let body = build_request_body(&req);
+
+        // Only the last user message's last content block should have cache_control
+        assert!(body["messages"][0]["content"][0].get("cache_control").is_none());
+        assert_eq!(body["messages"][2]["content"][0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn test_process_thinking_delta() {
+        let empty_stream = Box::pin(futures_util::stream::empty());
+        let mut stream = AnthropicEventStream::new(empty_stream);
+
+        // Start a thinking block
+        stream.process_sse_event(super::super::streaming::SseEvent {
+            event_type: Some("content_block_start".to_string()),
+            data: json!({"content_block": {"type": "thinking"}}).to_string(),
+        });
+
+        assert!(stream.in_thinking_block);
+
+        // Thinking delta
+        stream.process_sse_event(super::super::streaming::SseEvent {
+            event_type: Some("content_block_delta".to_string()),
+            data: json!({"delta": {"type": "thinking_delta", "thinking": "Let me think..."}}).to_string(),
+        });
+
+        assert_eq!(stream.pending.len(), 1);
+        match &stream.pending[0] {
+            Ok(AgentEvent::Thinking(t)) => assert_eq!(t, "Let me think..."),
+            other => panic!("unexpected event: {:?}", other),
+        }
+
+        // Stop thinking block
+        stream.pending.clear();
+        stream.process_sse_event(super::super::streaming::SseEvent {
+            event_type: Some("content_block_stop".to_string()),
+            data: "{}".to_string(),
+        });
+
+        assert!(!stream.in_thinking_block);
+        // No ToolUse event should be emitted for thinking block stop
+        assert!(stream.pending.is_empty());
+    }
+
+    #[test]
+    fn test_process_message_start_with_cache_tokens() {
+        let empty_stream = Box::pin(futures_util::stream::empty());
+        let mut stream = AnthropicEventStream::new(empty_stream);
+
+        stream.process_sse_event(super::super::streaming::SseEvent {
+            event_type: Some("message_start".to_string()),
+            data: json!({
+                "message": {
+                    "usage": {
+                        "input_tokens": 100,
+                        "cache_creation_input_tokens": 500,
+                        "cache_read_input_tokens": 200
+                    }
+                }
+            }).to_string(),
+        });
+
+        assert_eq!(stream.pending.len(), 1);
+        match &stream.pending[0] {
+            Ok(AgentEvent::UsageUpdate {
+                input_tokens,
+                output_tokens,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            }) => {
+                assert_eq!(*input_tokens, 100);
+                assert_eq!(*output_tokens, 0);
+                assert_eq!(*cache_creation_input_tokens, 500);
+                assert_eq!(*cache_read_input_tokens, 200);
+            }
+            other => panic!("unexpected event: {:?}", other),
+        }
     }
 }

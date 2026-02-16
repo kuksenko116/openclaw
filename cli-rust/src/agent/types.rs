@@ -28,6 +28,23 @@ pub(crate) enum ContentBlock {
         #[serde(default)]
         is_error: bool,
     },
+    #[serde(rename = "image")]
+    Image {
+        #[serde(rename = "source")]
+        source: ImageSource,
+    },
+}
+
+/// Source data for an image content block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ImageSource {
+    /// Source type, e.g. "base64".
+    #[serde(rename = "type")]
+    pub source_type: String,
+    /// MIME type, e.g. "image/png", "image/jpeg".
+    pub media_type: String,
+    /// Base64-encoded image data.
+    pub data: String,
 }
 
 /// A message in a conversation.
@@ -63,6 +80,8 @@ impl Message {
 pub(crate) enum AgentEvent {
     /// Incremental text from the assistant.
     TextDelta(String),
+    /// Incremental thinking content from the assistant (extended thinking).
+    Thinking(String),
     /// The assistant wants to call a tool.
     ToolUse {
         id: String,
@@ -72,7 +91,12 @@ pub(crate) enum AgentEvent {
     /// The response is complete.
     MessageEnd { stop_reason: StopReason },
     /// Token usage update (partial — fields may be zero).
-    UsageUpdate { input_tokens: u64, output_tokens: u64 },
+    UsageUpdate {
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_input_tokens: u64,
+        cache_read_input_tokens: u64,
+    },
 }
 
 /// Why the LLM stopped generating.
@@ -92,6 +116,9 @@ pub(crate) struct ChatRequest {
     pub model: String,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
+    /// Extended thinking budget (Anthropic only). When set and > 0, enables
+    /// the thinking feature with the specified token budget.
+    pub thinking_budget: Option<u32>,
 }
 
 /// A tool definition presented to the LLM.
@@ -124,4 +151,8 @@ pub(crate) struct AgentResult {
 pub(crate) struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
 }

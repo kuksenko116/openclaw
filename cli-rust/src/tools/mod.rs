@@ -8,6 +8,7 @@
 pub(crate) mod bash;
 pub(crate) mod file_ops;
 pub(crate) mod policy;
+pub(crate) mod web_fetch;
 
 use anyhow::Result;
 use serde_json::Value;
@@ -81,6 +82,7 @@ impl ToolExecutor for ToolRegistry {
             }
             "glob" => file_ops::glob_files(args).await,
             "grep" => file_ops::grep_files(args).await,
+            "web_fetch" => web_fetch::execute(args).await,
             _ => Ok(ToolResult {
                 content: format!("Unknown tool: '{}'", name),
                 is_error: true,
@@ -99,6 +101,7 @@ impl ToolExecutor for ToolRegistry {
             file_ops::edit_definition(),
             file_ops::glob_definition(),
             file_ops::grep_definition(),
+            web_fetch::definition(),
         ];
 
         all_defs

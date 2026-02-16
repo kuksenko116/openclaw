@@ -40,6 +40,15 @@ pub(crate) struct Config {
     /// Temperature for LLM responses.
     #[serde(default)]
     pub temperature: Option<f32>,
+
+    /// Extended thinking budget in tokens (Anthropic only).
+    /// When set and > 0, enables extended thinking with this token budget.
+    #[serde(default)]
+    pub thinking_budget: Option<u32>,
+
+    /// Verbose mode — show full request/response details at runtime.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 /// Tools section of the config.
@@ -78,6 +87,8 @@ impl Default for Config {
             system_prompt: None,
             max_tokens: None,
             temperature: None,
+            thinking_budget: None,
+            verbose: false,
         }
     }
 }

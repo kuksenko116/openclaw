@@ -72,6 +72,21 @@ impl Session {
     pub fn push_message(&mut self, message: Message) {
         self.messages.push(message);
     }
+
+    /// Clear all messages in the session.
+    pub fn clear_messages(&mut self) {
+        self.messages.clear();
+    }
+
+    /// Replace all messages with a new set (used by compaction).
+    pub fn replace_messages(&mut self, messages: Vec<Message>) {
+        self.messages = messages;
+    }
+
+    /// Return the session file path.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 /// Resolve the sessions directory, defaulting to `~/.openclaw-cli/sessions/`.

@@ -302,6 +302,8 @@ impl OpenAiEventStream {
                 self.pending.push(Ok(AgentEvent::UsageUpdate {
                     input_tokens: input,
                     output_tokens: output,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
                 }));
             }
         }

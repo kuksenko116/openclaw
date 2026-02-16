@@ -1,3 +1,7 @@
+pub(crate) mod context;
+pub(crate) mod images;
+pub(crate) mod memory;
+pub(crate) mod prompt;
 pub(crate) mod session;
 pub(crate) mod types;
 
@@ -72,7 +76,35 @@ pub(crate) async fn run_agent_loop(
     let mut usage = Usage::default();
 
     for _turn in 0..MAX_AGENT_TURNS {
+        // Auto-compact when approaching context window limit.
+        let system_prompt = prompt::build_system_prompt(config, tools);
+        let tool_defs_tokens = prompt::estimate_tool_definitions_tokens(tools);
+        if let Some((compacted, _stats)) = context::maybe_compact(
+            provider,
+            session.messages(),
+            &config.model,
+            &system_prompt,
+            tool_defs_tokens,
+        )
+        .await?
+        {
+            session.replace_messages(compacted);
+        }
+
         let request = build_chat_request(session, tools, config);
+
+        if config.verbose {
+            eprintln!(
+                "\x1b[2m[verbose] Turn {} | model={} | max_tokens={} | messages={} | tools={} | thinking={:?}\x1b[0m",
+                _turn + 1,
+                request.model,
+                request.max_tokens,
+                request.messages.len(),
+                request.tools.len(),
+                request.thinking_budget,
+            );
+        }
+
         let mut stream = {
             let mut last_err = None;
             let mut acquired = false;
@@ -126,6 +158,11 @@ pub(crate) async fn run_agent_loop(
                     std::io::stdout().flush().ok();
                     text_buf.push_str(&delta);
                 }
+                AgentEvent::Thinking(text) => {
+                    // Print thinking text to stderr in dim/italic, don't add to text_buf
+                    eprint!("\x1b[2;3m{}\x1b[0m", text);
+                    std::io::stderr().flush().ok();
+                }
                 AgentEvent::ToolUse { id, name, input } => {
                     // Print tool call header
                     eprintln!(
@@ -142,9 +179,13 @@ pub(crate) async fn run_agent_loop(
                 AgentEvent::UsageUpdate {
                     input_tokens,
                     output_tokens,
+                    cache_creation_input_tokens,
+                    cache_read_input_tokens,
                 } => {
                     usage.input_tokens += input_tokens;
                     usage.output_tokens += output_tokens;
+                    usage.cache_creation_input_tokens += cache_creation_input_tokens;
+                    usage.cache_read_input_tokens += cache_read_input_tokens;
                 }
             }
         }
@@ -186,11 +227,21 @@ pub(crate) async fn run_agent_loop(
 
             eprintln!("\x1b[2m  Running {}…\x1b[0m", tc.name);
 
+            let tool_start = std::time::Instant::now();
             let result = tools.execute(&tc.name, tc.input.clone()).await;
+            let tool_elapsed = tool_start.elapsed();
             let tool_result = match result {
                 Ok(r) => {
                     let preview = truncate_preview(&r.content, 200);
-                    eprintln!("\x1b[32m  ✓\x1b[0m \x1b[2m{}\x1b[0m", preview);
+                    if config.verbose {
+                        eprintln!(
+                            "\x1b[32m  ✓\x1b[0m \x1b[2m({:.1}ms) {}\x1b[0m",
+                            tool_elapsed.as_secs_f64() * 1000.0,
+                            preview,
+                        );
+                    } else {
+                        eprintln!("\x1b[32m  ✓\x1b[0m \x1b[2m{}\x1b[0m", preview);
+                    }
                     r
                 }
                 Err(e) => {
@@ -242,21 +293,16 @@ fn build_chat_request(
     tools: &dyn ToolExecutor,
     config: &Config,
 ) -> ChatRequest {
+    let default_max = crate::llm::models::max_output_tokens(&config.model) as u32;
     ChatRequest {
         messages: session.messages().to_vec(),
-        system_prompt: config
-            .system_prompt
-            .clone()
-            .unwrap_or_else(default_system_prompt),
+        system_prompt: prompt::build_system_prompt(config, tools),
         tools: tools.definitions(),
         model: config.model.clone(),
-        max_tokens: config.max_tokens.unwrap_or(4096),
+        max_tokens: config.max_tokens.unwrap_or(default_max),
         temperature: config.temperature,
+        thinking_budget: config.thinking_budget,
     }
-}
-
-fn default_system_prompt() -> String {
-    "You are an AI assistant with access to tools for reading files, writing code, and running commands.".to_string()
 }
 
 /// Truncate a string to `max_len` chars for preview display.
@@ -425,11 +471,15 @@ mod tests {
             AgentEvent::UsageUpdate {
                 input_tokens: 100,
                 output_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
             },
             AgentEvent::TextDelta("hi".to_string()),
             AgentEvent::UsageUpdate {
                 input_tokens: 0,
                 output_tokens: 25,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
             },
             AgentEvent::MessageEnd {
                 stop_reason: StopReason::EndTurn,

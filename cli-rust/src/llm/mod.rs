@@ -7,6 +7,7 @@
 // Each provider implements the LlmProvider trait defined in agent/mod.rs.
 
 pub(crate) mod anthropic;
+pub(crate) mod models;
 pub(crate) mod ollama;
 pub(crate) mod openai;
 pub(crate) mod streaming;

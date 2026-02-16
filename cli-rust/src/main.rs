@@ -7,7 +7,9 @@ mod tools;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+use crate::agent::images;
 use crate::agent::session::{load_or_create_session, resolve_sessions_dir};
+use crate::agent::types::{ContentBlock, Message, Role};
 
 // ---------------------------------------------------------------------------
 // CLI definition
@@ -153,6 +155,9 @@ async fn main() -> Result<()> {
                 config.max_tokens = Some(t);
             }
 
+            // Resolve model aliases (e.g. "sonnet" -> "claude-sonnet-4-20250514")
+            config.model = llm::models::resolve_model_alias(&config.model).to_string();
+
             // Resolve API key from provider-specific env vars if not set
             if config.api_key.as_deref().unwrap_or("").is_empty() {
                 let env_var = match config.provider.as_str() {
@@ -214,7 +219,7 @@ fn init_tracing() {
 // ---------------------------------------------------------------------------
 
 async fn cmd_chat(
-    config: config::Config,
+    mut config: config::Config,
     prompt: Option<String>,
     session_name: Option<String>,
     interactive: bool,
@@ -236,25 +241,63 @@ async fn cmd_chat(
     let tools = tools::ToolRegistry::new(tools_profile, config.tools.exec.clone());
 
     if interactive {
-        cli::run_repl(provider.as_ref(), &mut session, &tools, &config).await?;
+        cli::run_repl(provider.as_ref(), &mut session, &tools, &mut config).await?;
     } else {
         let prompt_text = prompt.context(
             "prompt is required in non-interactive mode (use -i for interactive)",
         )?;
 
-        session.add_user_message(&prompt_text);
+        // Detect image paths in the prompt and attach them
+        let image_paths = images::detect_image_paths(&prompt_text);
+        if image_paths.is_empty() {
+            session.add_user_message(&prompt_text);
+        } else {
+            let mut blocks = vec![ContentBlock::Text {
+                text: prompt_text.clone(),
+            }];
+            for img_path in &image_paths {
+                match images::load_image_from_path(img_path).await {
+                    Ok(block) => {
+                        eprintln!(
+                            "\x1b[2m  Attached image: {}\x1b[0m",
+                            img_path
+                        );
+                        blocks.push(block);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "\x1b[33m  Warning: could not load image '{}': {}\x1b[0m",
+                            img_path, e
+                        );
+                    }
+                }
+            }
+            session.push_message(Message {
+                role: Role::User,
+                content: blocks,
+            });
+        }
 
         let result =
             agent::run_agent_loop(provider.as_ref(), &mut session, &tools, &config).await?;
 
         // Print usage stats
         if result.tool_calls > 0 || result.usage.input_tokens > 0 {
+            let cost_str = llm::models::estimate_cost(
+                &config.model,
+                result.usage.input_tokens,
+                result.usage.output_tokens,
+            )
+            .map(|c| format!(" ~{}", llm::models::format_cost(c)))
+            .unwrap_or_default();
+
             eprintln!(
-                "\n\x1b[2m({} tool call{}, {} in / {} out tokens)\x1b[0m",
+                "\n\x1b[2m({} tool call{}, {} in / {} out tokens{})\x1b[0m",
                 result.tool_calls,
                 if result.tool_calls == 1 { "" } else { "s" },
                 result.usage.input_tokens,
                 result.usage.output_tokens,
+                cost_str,
             );
         }
 

@@ -23,7 +23,7 @@ impl ToolPolicy {
     pub fn is_tool_allowed(&self, name: &str) -> bool {
         match self.profile.as_str() {
             "full" => true,
-            "coding" => matches!(name, "bash" | "read" | "write" | "edit" | "glob" | "grep"),
+            "coding" => matches!(name, "bash" | "read" | "write" | "edit" | "glob" | "grep" | "web_fetch"),
             "minimal" => matches!(name, "read" | "glob" | "grep"),
             "none" => false,
             _ => true, // Unknown profile defaults to full.
@@ -109,6 +109,7 @@ mod tests {
         assert!(policy.is_tool_allowed("edit"));
         assert!(policy.is_tool_allowed("glob"));
         assert!(policy.is_tool_allowed("grep"));
+        assert!(policy.is_tool_allowed("web_fetch"));
         assert!(!policy.is_tool_allowed("browser"));
     }
 
