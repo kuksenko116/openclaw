@@ -10,8 +10,8 @@ use std::pin::Pin;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio_stream::{Stream, StreamExt};
 use tokio::time::{sleep, Duration};
+use tokio_stream::{Stream, StreamExt};
 
 use crate::config::Config;
 
@@ -133,7 +133,9 @@ pub(crate) async fn run_agent_loop(
             match last_err {
                 Some(Ok(s)) => s,
                 Some(Err(e)) => return Err(e),
-                None if !acquired => return Err(anyhow::anyhow!("stream_chat failed after retries")),
+                None if !acquired => {
+                    return Err(anyhow::anyhow!("stream_chat failed after retries"))
+                }
                 None => unreachable!(),
             }
         };
@@ -146,9 +148,12 @@ pub(crate) async fn run_agent_loop(
         loop {
             let event = match tokio::time::timeout(stream_timeout, stream.next()).await {
                 Ok(Some(event)) => event?,
-                Ok(None) => break,          // stream ended
+                Ok(None) => break, // stream ended
                 Err(_) => {
-                    eprintln!("\x1b[33mWarning: stream timed out after {}s\x1b[0m", stream_timeout.as_secs());
+                    eprintln!(
+                        "\x1b[33mWarning: stream timed out after {}s\x1b[0m",
+                        stream_timeout.as_secs()
+                    );
                     break;
                 }
             };
@@ -165,10 +170,7 @@ pub(crate) async fn run_agent_loop(
                 }
                 AgentEvent::ToolUse { id, name, input } => {
                     // Print tool call header
-                    eprintln!(
-                        "\n\x1b[36m⚙ Tool: {}\x1b[0m \x1b[2m({})\x1b[0m",
-                        name, id
-                    );
+                    eprintln!("\n\x1b[36m⚙ Tool: {}\x1b[0m \x1b[2m({})\x1b[0m", name, id);
                     tool_calls.push(PendingToolCall { id, name, input });
                 }
                 AgentEvent::MessageEnd {
@@ -288,11 +290,7 @@ struct PendingToolCall {
 }
 
 /// Build a ChatRequest from the current session state.
-fn build_chat_request(
-    session: &Session,
-    tools: &dyn ToolExecutor,
-    config: &Config,
-) -> ChatRequest {
+fn build_chat_request(session: &Session, tools: &dyn ToolExecutor, config: &Config) -> ChatRequest {
     let default_max = crate::llm::models::max_output_tokens(&config.model) as u32;
     ChatRequest {
         messages: session.messages().to_vec(),

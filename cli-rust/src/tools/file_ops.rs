@@ -47,7 +47,11 @@ pub(crate) async fn read_file(args: Value) -> Result<ToolResult> {
     match tokio::fs::read_to_string(file_path).await {
         Ok(content) => {
             let lines: Vec<&str> = content.lines().collect();
-            let start = if offset > 0 { offset.saturating_sub(1) } else { 0 };
+            let start = if offset > 0 {
+                offset.saturating_sub(1)
+            } else {
+                0
+            };
             let end = (start + limit).min(lines.len());
 
             let mut result = String::new();
@@ -220,10 +224,7 @@ pub(crate) async fn edit_file(args: Value) -> Result<ToolResult> {
         Ok(()) => {
             let replaced = if replace_all { occurrences } else { 1 };
             Ok(ToolResult {
-                content: format!(
-                    "Replaced {} occurrence(s) in {}",
-                    replaced, file_path
-                ),
+                content: format!("Replaced {} occurrence(s) in {}", replaced, file_path),
                 is_error: false,
             })
         }
@@ -240,9 +241,7 @@ async fn atomic_write(path: &str, content: &str) -> Result<()> {
     let dir = path.parent().unwrap_or(std::path::Path::new("."));
     let temp_name = format!(
         ".{}.{}.tmp",
-        path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy(),
+        path.file_name().unwrap_or_default().to_string_lossy(),
         std::process::id()
     );
     let temp_path = dir.join(temp_name);
@@ -288,7 +287,7 @@ pub(crate) async fn glob_files(args: Value) -> Result<ToolResult> {
 
     let base_dir = args["path"]
         .as_str()
-        .map(|p| std::path::PathBuf::from(p))
+        .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
     let full_pattern = base_dir.join(pattern).to_string_lossy().to_string();
@@ -368,9 +367,7 @@ pub(crate) async fn grep_files(args: Value) -> Result<ToolResult> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("missing 'pattern' parameter"))?;
 
-    let search_path = args["path"]
-        .as_str()
-        .unwrap_or(".");
+    let search_path = args["path"].as_str().unwrap_or(".");
     let include = args["include"].as_str();
 
     // Shell out to rg (ripgrep) for performance, fall back to grep.

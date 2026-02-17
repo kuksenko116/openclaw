@@ -50,7 +50,10 @@ pub(crate) async fn execute(args: Value) -> Result<ToolResult> {
     // Validate URL scheme
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Ok(ToolResult {
-            content: format!("Invalid URL scheme. Only http:// and https:// are supported: {}", url),
+            content: format!(
+                "Invalid URL scheme. Only http:// and https:// are supported: {}",
+                url
+            ),
             is_error: true,
         });
     }
@@ -123,10 +126,7 @@ pub(crate) async fn execute(args: Value) -> Result<ToolResult> {
     let truncated = truncate_output(&processed);
 
     let content = if let Some(p) = prompt {
-        format!(
-            "URL: {}\nPrompt: {}\n\n---\n\n{}",
-            url, p, truncated
-        )
+        format!("URL: {}\nPrompt: {}\n\n---\n\n{}", url, p, truncated)
     } else {
         format!("URL: {}\n\n---\n\n{}", url, truncated)
     };
@@ -270,7 +270,10 @@ fn truncate_output(content: &str) -> String {
         return content.to_string();
     }
     let truncated: String = content.chars().take(MAX_OUTPUT_CHARS).collect();
-    format!("{}\n\n[truncated: {} characters total, showing first {}]", truncated, char_count, MAX_OUTPUT_CHARS)
+    format!(
+        "{}\n\n[truncated: {} characters total, showing first {}]",
+        truncated, char_count, MAX_OUTPUT_CHARS
+    )
 }
 
 #[cfg(test)]

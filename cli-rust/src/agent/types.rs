@@ -72,7 +72,6 @@ impl Message {
             content,
         }
     }
-
 }
 
 /// Events streamed from the LLM provider during a response.

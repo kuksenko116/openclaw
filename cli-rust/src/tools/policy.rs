@@ -23,7 +23,10 @@ impl ToolPolicy {
     pub fn is_tool_allowed(&self, name: &str) -> bool {
         match self.profile.as_str() {
             "full" => true,
-            "coding" => matches!(name, "bash" | "read" | "write" | "edit" | "glob" | "grep" | "web_fetch"),
+            "coding" => matches!(
+                name,
+                "bash" | "read" | "write" | "edit" | "glob" | "grep" | "web_fetch"
+            ),
             "minimal" => matches!(name, "read" | "glob" | "grep"),
             "none" => false,
             _ => true, // Unknown profile defaults to full.
@@ -39,11 +42,7 @@ impl ToolPolicy {
 /// - "allowlist": check the first command token against the allowlist.
 ///   Commands containing shell chaining operators (;, &&, ||, |, $( ) are
 ///   rejected unless the pattern explicitly ends with a space (prefix mode).
-pub(crate) fn is_command_allowed(
-    command: &str,
-    allowlist: &[String],
-    security: &str,
-) -> bool {
+pub(crate) fn is_command_allowed(command: &str, allowlist: &[String], security: &str) -> bool {
     match security {
         "full" => true,
         "deny" => false,
@@ -160,24 +159,52 @@ mod tests {
     #[test]
     fn test_command_rejects_shell_injection() {
         let allowlist = vec!["git".to_string()];
-        assert!(!is_command_allowed("git; rm -rf /", &allowlist, "allowlist"));
-        assert!(!is_command_allowed("git && malicious", &allowlist, "allowlist"));
-        assert!(!is_command_allowed("git || malicious", &allowlist, "allowlist"));
+        assert!(!is_command_allowed(
+            "git; rm -rf /",
+            &allowlist,
+            "allowlist"
+        ));
+        assert!(!is_command_allowed(
+            "git && malicious",
+            &allowlist,
+            "allowlist"
+        ));
+        assert!(!is_command_allowed(
+            "git || malicious",
+            &allowlist,
+            "allowlist"
+        ));
         assert!(!is_command_allowed("git `whoami`", &allowlist, "allowlist"));
-        assert!(!is_command_allowed("git $(whoami)", &allowlist, "allowlist"));
+        assert!(!is_command_allowed(
+            "git $(whoami)",
+            &allowlist,
+            "allowlist"
+        ));
     }
 
     #[test]
     fn test_command_rejects_pipe() {
         let allowlist = vec!["git".to_string()];
-        assert!(!is_command_allowed("git log | rm -rf /", &allowlist, "allowlist"));
+        assert!(!is_command_allowed(
+            "git log | rm -rf /",
+            &allowlist,
+            "allowlist"
+        ));
     }
 
     #[test]
     fn test_command_rejects_newline_injection() {
         let allowlist = vec!["git".to_string()];
-        assert!(!is_command_allowed("git status\nrm -rf /", &allowlist, "allowlist"));
-        assert!(!is_command_allowed("git status\rrm -rf /", &allowlist, "allowlist"));
+        assert!(!is_command_allowed(
+            "git status\nrm -rf /",
+            &allowlist,
+            "allowlist"
+        ));
+        assert!(!is_command_allowed(
+            "git status\rrm -rf /",
+            &allowlist,
+            "allowlist"
+        ));
     }
 
     #[test]
@@ -189,8 +216,16 @@ mod tests {
     #[test]
     fn test_command_rejects_process_substitution() {
         let allowlist = vec!["diff".to_string()];
-        assert!(!is_command_allowed("diff <(cat /etc/shadow) /dev/null", &allowlist, "allowlist"));
-        assert!(!is_command_allowed("diff >(tee /tmp/out) /dev/null", &allowlist, "allowlist"));
+        assert!(!is_command_allowed(
+            "diff <(cat /etc/shadow) /dev/null",
+            &allowlist,
+            "allowlist"
+        ));
+        assert!(!is_command_allowed(
+            "diff >(tee /tmp/out) /dev/null",
+            &allowlist,
+            "allowlist"
+        ));
     }
 
     #[test]

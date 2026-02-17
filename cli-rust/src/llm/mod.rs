@@ -12,9 +12,9 @@ pub(crate) mod ollama;
 pub(crate) mod openai;
 pub(crate) mod streaming;
 
-use anyhow::Result;
 use crate::agent::LlmProvider;
 use crate::config::Config;
+use anyhow::Result;
 
 /// Create a provider from the application configuration.
 pub(crate) fn create_provider(config: &Config) -> Result<Box<dyn LlmProvider>> {

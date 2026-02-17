@@ -21,7 +21,7 @@ const CHARS_PER_TOKEN: usize = 4;
 /// Uses the simple heuristic of ~4 characters per token. This is good enough
 /// for context window management decisions but not for billing.
 pub(crate) fn estimate_tokens(text: &str) -> usize {
-    (text.len() + CHARS_PER_TOKEN - 1) / CHARS_PER_TOKEN
+    text.len().div_ceil(CHARS_PER_TOKEN)
 }
 
 /// Estimate the token count for a single [`Message`].
@@ -34,9 +34,7 @@ pub(crate) fn estimate_message_tokens(msg: &Message) -> usize {
         .map(|block| match block {
             ContentBlock::Text { text } => estimate_tokens(text),
             ContentBlock::ToolUse { id, name, input } => {
-                estimate_tokens(id)
-                    + estimate_tokens(name)
-                    + estimate_tokens(&input.to_string())
+                estimate_tokens(id) + estimate_tokens(name) + estimate_tokens(&input.to_string())
             }
             ContentBlock::ToolResult {
                 tool_use_id,
@@ -54,7 +52,7 @@ pub(crate) fn estimate_message_tokens(msg: &Message) -> usize {
 
 /// Estimate the total token count for a slice of messages.
 pub(crate) fn estimate_messages_tokens(msgs: &[Message]) -> usize {
-    msgs.iter().map(|m| estimate_message_tokens(m)).sum()
+    msgs.iter().map(estimate_message_tokens).sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -268,10 +266,7 @@ pub(crate) async fn maybe_compact(
 
     eprintln!(
         "\x1b[33mCompacted: {} -> {} messages ({} -> ~{} tokens)\x1b[0m",
-        result.messages_before,
-        result.messages_after,
-        result.tokens_before,
-        result.tokens_after,
+        result.messages_before, result.messages_after, result.tokens_before, result.tokens_after,
     );
 
     Ok(Some((compacted, result)))

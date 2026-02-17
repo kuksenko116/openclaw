@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
+use super::streaming::parse_sse_stream;
 use crate::agent::types::{
     AgentEvent, ChatRequest, ContentBlock, Message, Role, StopReason, ToolDefinition,
 };
 use crate::agent::LlmProvider;
-use super::streaming::parse_sse_stream;
 
 pub(crate) struct OpenAiProvider {
     client: reqwest::Client,
@@ -158,14 +158,16 @@ fn extract_tool_calls(blocks: &[ContentBlock]) -> Vec<Value> {
 fn convert_tools(tools: &[ToolDefinition]) -> Vec<Value> {
     tools
         .iter()
-        .map(|t| json!({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.input_schema,
-            }
-        }))
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.input_schema,
+                }
+            })
+        })
         .collect()
 }
 
@@ -190,9 +192,7 @@ impl LlmProvider for OpenAiProvider {
         let client = self.client.clone();
 
         let stream = futures_util::stream::once(async move {
-            let mut req = client
-                .post(&url)
-                .header("content-type", "application/json");
+            let mut req = client.post(&url).header("content-type", "application/json");
 
             if !api_key.is_empty() {
                 req = req.header("authorization", format!("Bearer {}", api_key));
@@ -212,15 +212,13 @@ impl LlmProvider for OpenAiProvider {
 
             Ok(response)
         })
-        .flat_map(move |response_result| {
-            match response_result {
-                Err(e) => Box::pin(futures_util::stream::once(async move { Err(e) }))
-                    as Pin<Box<dyn Stream<Item = Result<AgentEvent>> + Send>>,
-                Ok(response) => {
-                    let byte_stream = response.bytes_stream();
-                    let sse_stream = parse_sse_stream(byte_stream);
-                    Box::pin(OpenAiEventStream::new(sse_stream))
-                }
+        .flat_map(move |response_result| match response_result {
+            Err(e) => Box::pin(futures_util::stream::once(async move { Err(e) }))
+                as Pin<Box<dyn Stream<Item = Result<AgentEvent>> + Send>>,
+            Ok(response) => {
+                let byte_stream = response.bytes_stream();
+                let sse_stream = parse_sse_stream(byte_stream);
+                Box::pin(OpenAiEventStream::new(sse_stream))
             }
         });
 
@@ -237,9 +235,7 @@ struct OpenAiEventStream {
 }
 
 impl OpenAiEventStream {
-    fn new(
-        inner: Pin<Box<dyn Stream<Item = Result<super::streaming::SseEvent>> + Send>>,
-    ) -> Self {
+    fn new(inner: Pin<Box<dyn Stream<Item = Result<super::streaming::SseEvent>> + Send>>) -> Self {
         Self {
             inner,
             tool_calls: HashMap::new(),
@@ -297,7 +293,10 @@ impl OpenAiEventStream {
         // or in the chunk with finish_reason).
         if let Some(u) = chunk.get("usage").and_then(|v| v.as_object()) {
             let input = u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let output = u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let output = u
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
             if input > 0 || output > 0 {
                 self.pending.push(Ok(AgentEvent::UsageUpdate {
                     input_tokens: input,

@@ -130,10 +130,7 @@ fn format_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
 
 /// Find the byte offset of the n-th character boundary in a string.
 fn char_boundary(s: &str, n: usize) -> usize {
-    s.char_indices()
-        .nth(n)
-        .map(|(i, _)| i)
-        .unwrap_or(s.len())
+    s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
 }
 
 /// Truncate output if it exceeds the character limit.

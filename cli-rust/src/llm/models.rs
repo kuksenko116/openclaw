@@ -173,10 +173,7 @@ mod tests {
     #[test]
     fn alias_opus() {
         assert_eq!(resolve_model_alias("opus"), "claude-opus-4-20250514");
-        assert_eq!(
-            resolve_model_alias("claude-opus"),
-            "claude-opus-4-20250514"
-        );
+        assert_eq!(resolve_model_alias("claude-opus"), "claude-opus-4-20250514");
     }
 
     #[test]
@@ -208,10 +205,7 @@ mod tests {
 
     #[test]
     fn alias_passthrough() {
-        assert_eq!(
-            resolve_model_alias("my-custom-model"),
-            "my-custom-model"
-        );
+        assert_eq!(resolve_model_alias("my-custom-model"), "my-custom-model");
         assert_eq!(
             resolve_model_alias("claude-sonnet-4-20250514"),
             "claude-sonnet-4-20250514"

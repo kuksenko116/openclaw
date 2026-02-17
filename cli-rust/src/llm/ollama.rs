@@ -52,7 +52,7 @@ fn resolve_chat_url(base_url: &str) -> String {
 }
 
 /// A single chunk from the Ollama NDJSON stream.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct OllamaChatChunk {
     message: OllamaMessage,
@@ -61,17 +61,6 @@ struct OllamaChatChunk {
     prompt_eval_count: u64,
     #[serde(default)]
     eval_count: u64,
-}
-
-impl Default for OllamaChatChunk {
-    fn default() -> Self {
-        Self {
-            message: OllamaMessage::default(),
-            done: false,
-            prompt_eval_count: 0,
-            eval_count: 0,
-        }
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -206,14 +195,16 @@ fn extract_tool_calls(blocks: &[ContentBlock]) -> Vec<Value> {
 fn convert_tools(tools: &[ToolDefinition]) -> Vec<Value> {
     tools
         .iter()
-        .map(|t| json!({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.input_schema,
-            }
-        }))
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.input_schema,
+                }
+            })
+        })
         .collect()
 }
 

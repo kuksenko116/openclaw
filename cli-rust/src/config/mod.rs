@@ -25,9 +25,11 @@ pub(crate) fn load_config() -> Result<Config> {
         }
         _ => {
             tracing::debug!("no config file found, using defaults");
-            let mut cfg = Config::default();
             // Even with defaults, try to pick up an API key from the environment
-            cfg.api_key = Some("${ANTHROPIC_API_KEY}".to_string());
+            let mut cfg = Config {
+                api_key: Some("${ANTHROPIC_API_KEY}".to_string()),
+                ..Config::default()
+            };
             resolve_env_vars(&mut cfg);
             cfg
         }
@@ -73,12 +75,7 @@ fn substitute_env_vars(input: &str) -> String {
         if let Some(end) = rest.find('}') {
             let var_name = &rest[..end];
             let replacement = std::env::var(var_name).unwrap_or_default();
-            result = format!(
-                "{}{}{}",
-                &result[..start],
-                replacement,
-                &rest[end + 1..]
-            );
+            result = format!("{}{}{}", &result[..start], replacement, &rest[end + 1..]);
         } else {
             break;
         }

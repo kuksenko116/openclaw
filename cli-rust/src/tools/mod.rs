@@ -136,7 +136,9 @@ fn validate_file_path(path: &str) -> Result<(), String> {
 
     for denied in DENIED_PATHS {
         if normalized_str.contains(denied) {
-            return Err(format!("Access denied: path matches sensitive pattern '{denied}'"));
+            return Err(format!(
+                "Access denied: path matches sensitive pattern '{denied}'"
+            ));
         }
     }
     Ok(())
@@ -155,10 +157,7 @@ const MAX_RESULT_CHARS: usize = 30_000;
 
 /// Find the byte offset of the n-th character boundary in a string.
 fn char_boundary(s: &str, n: usize) -> usize {
-    s.char_indices()
-        .nth(n)
-        .map(|(i, _)| i)
-        .unwrap_or(s.len())
+    s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len())
 }
 
 /// Truncate tool output that exceeds the character limit.

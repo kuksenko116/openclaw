@@ -98,7 +98,9 @@ where
 
         // Process complete lines.
         while let Some(newline_pos) = self.buffer.find('\n') {
-            let line = self.buffer[..newline_pos].trim_end_matches('\r').to_string();
+            let line = self.buffer[..newline_pos]
+                .trim_end_matches('\r')
+                .to_string();
             self.buffer = self.buffer[newline_pos + 1..].to_string();
             self.process_line(&line);
         }
@@ -170,8 +172,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_parse_simple_event() {
-        let mut sse =
-            parse_sse_stream(test_stream(vec!["event: message\ndata: {\"text\":\"hello\"}\n\n"]));
+        let mut sse = parse_sse_stream(test_stream(vec![
+            "event: message\ndata: {\"text\":\"hello\"}\n\n",
+        ]));
 
         let event = sse.next().await.unwrap().unwrap();
         assert_eq!(event.event_type.as_deref(), Some("message"));
@@ -200,8 +203,7 @@ mod tests {
     #[tokio::test]
     async fn test_chunked_delivery() {
         // Data split across multiple byte chunks.
-        let mut sse =
-            parse_sse_stream(test_stream(vec!["event: te", "st\ndata: hel", "lo\n\n"]));
+        let mut sse = parse_sse_stream(test_stream(vec!["event: te", "st\ndata: hel", "lo\n\n"]));
 
         let event = sse.next().await.unwrap().unwrap();
         assert_eq!(event.event_type.as_deref(), Some("test"));

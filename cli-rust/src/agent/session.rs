@@ -22,10 +22,10 @@ impl Session {
 
     /// Load a session from a JSON file.
     pub fn load(path: &Path) -> Result<Self> {
-        let data =
-            std::fs::read_to_string(path).with_context(|| format!("reading session {}", path.display()))?;
-        let messages: Vec<Message> =
-            serde_json::from_str(&data).with_context(|| format!("parsing session {}", path.display()))?;
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("reading session {}", path.display()))?;
+        let messages: Vec<Message> = serde_json::from_str(&data)
+            .with_context(|| format!("parsing session {}", path.display()))?;
         Ok(Self {
             path: path.to_path_buf(),
             messages,
@@ -34,16 +34,12 @@ impl Session {
 
     /// Save the session atomically (write to .tmp, then rename).
     pub fn save(&self) -> Result<()> {
-        let dir = self
-            .path
-            .parent()
-            .unwrap_or_else(|| Path::new("."));
+        let dir = self.path.parent().unwrap_or_else(|| Path::new("."));
         std::fs::create_dir_all(dir)
             .with_context(|| format!("creating session directory {}", dir.display()))?;
 
         let tmp_path = dir.join(format!(".session-{}.tmp", Uuid::new_v4()));
-        let data = serde_json::to_string_pretty(&self.messages)
-            .context("serializing session")?;
+        let data = serde_json::to_string_pretty(&self.messages).context("serializing session")?;
 
         std::fs::write(&tmp_path, &data)
             .with_context(|| format!("writing temp session file {}", tmp_path.display()))?;
@@ -147,10 +143,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_strips_traversal() {
-        assert_eq!(
-            sanitize_session_name("../../etc/passwd").unwrap(),
-            "passwd"
-        );
+        assert_eq!(sanitize_session_name("../../etc/passwd").unwrap(), "passwd");
     }
 
     #[test]

@@ -243,9 +243,8 @@ async fn cmd_chat(
     if interactive {
         cli::run_repl(provider.as_ref(), &mut session, &tools, &mut config).await?;
     } else {
-        let prompt_text = prompt.context(
-            "prompt is required in non-interactive mode (use -i for interactive)",
-        )?;
+        let prompt_text = prompt
+            .context("prompt is required in non-interactive mode (use -i for interactive)")?;
 
         // Detect image paths in the prompt and attach them
         let image_paths = images::detect_image_paths(&prompt_text);
@@ -258,10 +257,7 @@ async fn cmd_chat(
             for img_path in &image_paths {
                 match images::load_image_from_path(img_path).await {
                     Ok(block) => {
-                        eprintln!(
-                            "\x1b[2m  Attached image: {}\x1b[0m",
-                            img_path
-                        );
+                        eprintln!("\x1b[2m  Attached image: {}\x1b[0m", img_path);
                         blocks.push(block);
                     }
                     Err(e) => {
@@ -349,7 +345,7 @@ fn cmd_providers_list(config: &config::Config) -> Result<()> {
     if let Some(ref url) = config.base_url {
         println!("Base URL: {}", url);
     }
-    let has_key = config.api_key.as_ref().map_or(false, |k| !k.is_empty());
+    let has_key = config.api_key.as_ref().is_some_and(|k| !k.is_empty());
     println!("API key: {}", if has_key { "set" } else { "not set" });
     Ok(())
 }

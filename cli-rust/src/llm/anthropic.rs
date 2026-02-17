@@ -9,11 +9,11 @@ use serde_json::{json, Value};
 use std::pin::Pin;
 use tokio_stream::Stream;
 
+use super::streaming::parse_sse_stream;
 use crate::agent::types::{
     AgentEvent, ChatRequest, ContentBlock, ImageSource, Message, Role, StopReason, ToolDefinition,
 };
 use crate::agent::LlmProvider;
-use super::streaming::parse_sse_stream;
 
 pub(crate) struct AnthropicProvider {
     client: reqwest::Client,
@@ -219,11 +219,13 @@ fn convert_image_source(source: &ImageSource) -> Value {
 fn convert_tools(tools: &[ToolDefinition]) -> Vec<Value> {
     tools
         .iter()
-        .map(|t| json!({
-            "name": t.name,
-            "description": t.description,
-            "input_schema": t.input_schema,
-        }))
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema,
+            })
+        })
         .collect()
 }
 
@@ -309,9 +311,7 @@ struct AnthropicEventStream {
 }
 
 impl AnthropicEventStream {
-    fn new(
-        inner: Pin<Box<dyn Stream<Item = Result<super::streaming::SseEvent>> + Send>>,
-    ) -> Self {
+    fn new(inner: Pin<Box<dyn Stream<Item = Result<super::streaming::SseEvent>> + Send>>) -> Self {
         Self {
             inner,
             current_tool_id: None,
@@ -380,9 +380,8 @@ impl AnthropicEventStream {
                 } else if let (Some(id), Some(name)) =
                     (self.current_tool_id.take(), self.current_tool_name.take())
                 {
-                    let input: Value =
-                        serde_json::from_str(&self.current_tool_input_json)
-                            .unwrap_or(Value::Object(Default::default()));
+                    let input: Value = serde_json::from_str(&self.current_tool_input_json)
+                        .unwrap_or(Value::Object(Default::default()));
                     self.current_tool_input_json.clear();
                     self.pending
                         .push(Ok(AgentEvent::ToolUse { id, name, input }));
@@ -592,7 +591,8 @@ mod tests {
         // Start tool
         stream.process_sse_event(super::super::streaming::SseEvent {
             event_type: Some("content_block_start".to_string()),
-            data: json!({"content_block": {"type": "tool_use", "id": "t1", "name": "bash"}}).to_string(),
+            data: json!({"content_block": {"type": "tool_use", "id": "t1", "name": "bash"}})
+                .to_string(),
         });
 
         // Input JSON delta
@@ -696,14 +696,21 @@ mod tests {
         let mut req = simple_request();
         req.messages = vec![
             Message::user("first message"),
-            Message::assistant(vec![ContentBlock::Text { text: "response".to_string() }]),
+            Message::assistant(vec![ContentBlock::Text {
+                text: "response".to_string(),
+            }]),
             Message::user("second message"),
         ];
         let body = build_request_body(&req);
 
         // Only the last user message's last content block should have cache_control
-        assert!(body["messages"][0]["content"][0].get("cache_control").is_none());
-        assert_eq!(body["messages"][2]["content"][0]["cache_control"]["type"], "ephemeral");
+        assert!(body["messages"][0]["content"][0]
+            .get("cache_control")
+            .is_none());
+        assert_eq!(
+            body["messages"][2]["content"][0]["cache_control"]["type"],
+            "ephemeral"
+        );
     }
 
     #[test]
@@ -722,7 +729,8 @@ mod tests {
         // Thinking delta
         stream.process_sse_event(super::super::streaming::SseEvent {
             event_type: Some("content_block_delta".to_string()),
-            data: json!({"delta": {"type": "thinking_delta", "thinking": "Let me think..."}}).to_string(),
+            data: json!({"delta": {"type": "thinking_delta", "thinking": "Let me think..."}})
+                .to_string(),
         });
 
         assert_eq!(stream.pending.len(), 1);
@@ -758,7 +766,8 @@ mod tests {
                         "cache_read_input_tokens": 200
                     }
                 }
-            }).to_string(),
+            })
+            .to_string(),
         });
 
         assert_eq!(stream.pending.len(), 1);

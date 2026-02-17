@@ -81,7 +81,7 @@ pub(crate) fn estimate_tool_definitions_tokens(tools: &dyn ToolExecutor) -> usiz
     for def in &defs {
         chars += def.name.len() + def.description.len() + def.input_schema.to_string().len();
     }
-    (chars + 3) / 4
+    chars.div_ceil(4)
 }
 
 // ---------------------------------------------------------------------------

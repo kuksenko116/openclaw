@@ -58,14 +58,8 @@ pub(crate) async fn run_repl(
                 // Handle slash commands
                 if trimmed.starts_with('/') {
                     rl.add_history_entry(trimmed)?;
-                    handle_slash_command(
-                        trimmed,
-                        session,
-                        config,
-                        provider,
-                        &mut total_usage,
-                    )
-                    .await;
+                    handle_slash_command(trimmed, session, config, provider, &mut total_usage)
+                        .await;
                     continue;
                 }
 
@@ -82,10 +76,7 @@ pub(crate) async fn run_repl(
                     for img_path in &image_paths {
                         match images::load_image_from_path(img_path).await {
                             Ok(block) => {
-                                eprintln!(
-                                    "\x1b[2m  Attached image: {}\x1b[0m",
-                                    img_path
-                                );
+                                eprintln!("\x1b[2m  Attached image: {}\x1b[0m", img_path);
                                 blocks.push(block);
                             }
                             Err(e) => {
@@ -185,7 +176,11 @@ fn current_git_branch() -> Option<String> {
         .ok()?;
     if output.status.success() {
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if branch.is_empty() { None } else { Some(branch) }
+        if branch.is_empty() {
+            None
+        } else {
+            Some(branch)
+        }
     } else {
         None
     }
@@ -446,10 +441,7 @@ async fn handle_slash_command(
                         eprintln!("  Verbose mode: off");
                     }
                     _ => {
-                        eprintln!(
-                            "\x1b[33m  Unknown value: '{}'. Use: on, off\x1b[0m",
-                            args
-                        );
+                        eprintln!("\x1b[33m  Unknown value: '{}'. Use: on, off\x1b[0m", args);
                     }
                 }
             }
@@ -508,10 +500,7 @@ mod tests {
 
     #[test]
     fn test_resolve_model_alias_passthrough() {
-        assert_eq!(
-            resolve_model_alias("custom-model-v1"),
-            "custom-model-v1"
-        );
+        assert_eq!(resolve_model_alias("custom-model-v1"), "custom-model-v1");
     }
 
     #[test]
